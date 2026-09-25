@@ -1,0 +1,1926 @@
+<!DOCTYPE html>
+<html lang="es" class="locked">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Perfeccionate — Architecture & Flows</title>
+<style>
+:root {
+  --bg: #0a0a0a;
+  --bg-canvas: #0c0c0c;
+  --panel: #111111;
+  --panel-2: #161616;
+  --border: #2a2a2a;
+  --border-soft: #1e1e1e;
+  --text: #f2f2f2;
+  --text-dim: #8a8a8a;
+  --muted: #5c5c5c;
+  --yellow: #F5D000;
+  --yellow-dim: rgba(245, 208, 0, 0.35);
+  --yellow-glow: rgba(245, 208, 0, 0.55);
+  --edge: #3a3a3a;
+  --node-bg: #141414;
+  --node-border: #2e2e2e;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --cat-frontend: #5b8cff;
+  --cat-backend: #3dd6c6;
+  --cat-data: #7fd99a;
+  --cat-worker: #f5a524;
+  --cat-external: #c084fc;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+body { overflow: hidden; }
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 25%);
+  height: 100vh;
+  width: 100%;
+}
+
+/* ── Canvas ── */
+.canvas {
+  position: relative;
+  background: var(--bg-canvas);
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+.canvas-scroll {
+  position: absolute; inset: 0;
+  overflow: auto;
+}
+svg.diagram {
+  display: block;
+  width: 100%;
+  min-width: 1100px;
+  height: auto;
+  min-height: 100%;
+}
+
+/* Floating header on canvas */
+.float-header {
+  position: absolute;
+  top: 18px; left: 20px;
+  z-index: 10;
+  pointer-events: none;
+  max-width: min(520px, 70%);
+}
+.float-header h1 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.float-header .subtitle {
+  margin: 0 0 14px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  pointer-events: none;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+.legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.meta-badges {
+  position: absolute;
+  bottom: 14px; left: 18px;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  pointer-events: none;
+}
+.badge {
+  font-size: 0.65rem;
+  color: var(--muted);
+  background: rgba(17,17,17,0.85);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-family: var(--mono);
+}
+.badge strong { color: var(--text-dim); font-weight: 600; }
+
+/* ── SVG nodes / edges ── */
+.edge {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.4;
+  opacity: 0.85;
+  transition: opacity 0.28s ease, stroke 0.28s ease, stroke-width 0.28s ease;
+}
+.edge.dim { opacity: 0.12; }
+.edge.hi {
+  stroke: var(--yellow);
+  stroke-width: 2.4;
+  opacity: 1;
+  /* glow goes on underlay .edge-glow so markers stay crisp */
+}
+.edge-glow {
+  display: none; /* glow desactivado: confunde vs edges normales */
+}
+.anchor-dot {
+  fill: var(--yellow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+.anchor-dot.hi { opacity: 1; }
+.step-badge { pointer-events: none; }
+.step-badge circle {
+  fill: var(--yellow);
+  stroke: #111;
+  stroke-width: 1.5;
+}
+.step-badge text {
+  fill: #111;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.node { cursor: default; transition: opacity 0.28s ease; }
+.node.dim { opacity: 0.18; }
+.node.hi { opacity: 1; }
+.node rect.box {
+  fill: var(--node-bg);
+  stroke: var(--node-border);
+  stroke-width: 1.2;
+  filter: url(#nodeShadow);
+  transition: stroke 0.2s ease, fill 0.2s ease;
+}
+.node.hi rect.box {
+  stroke: var(--yellow);
+  stroke-width: 1.6;
+  fill: #1a1808;
+}
+.node .accent {
+  /* left category bar */
+}
+.node .label {
+  fill: var(--text);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.node .chip {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 7.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.layer-label {
+  fill: #3d3d3d;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-family: var(--font);
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  min-height: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+.side-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.side-section.flows-section {
+  flex: 0 0 42%;
+  border-bottom: 1px solid var(--border);
+  min-height: 180px;
+}
+.side-section.steps-section {
+  flex: 1 1 58%;
+  min-height: 0;
+}
+.side-head {
+  flex-shrink: 0;
+  padding: 14px 16px 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.side-head h2 {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.side-head .clear {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.side-head .clear:hover { color: var(--yellow); }
+.side-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0 16px;
+  scrollbar-width: thin;
+  scrollbar-color: #333 transparent;
+}
+.side-scroll::-webkit-scrollbar { width: 6px; }
+.side-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+.flow-btn {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-left: 3px solid transparent;
+  color: var(--muted);
+  padding: 10px 16px 10px 14px;
+  font: inherit;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.flow-btn:hover {
+  color: var(--text-dim);
+  background: rgba(255,255,255,0.02);
+}
+.flow-btn:focus-visible {
+  outline: 1px solid var(--yellow);
+  outline-offset: -2px;
+}
+.flow-btn.active {
+  color: var(--text);
+  border-left-color: var(--yellow);
+  background: rgba(245, 208, 0, 0.06);
+}
+.flow-btn .name {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+.flow-btn.active .name { color: var(--text); }
+.flow-btn .desc {
+  display: block;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: inherit;
+  opacity: 0.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.steps-empty {
+  padding: 8px 16px 20px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.steps-intro {
+  padding: 0 16px 10px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 24px;
+}
+.steps-list li {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+  align-items: start;
+}
+.step-num {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: #111;
+  font-size: 0.72rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.step-body {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.step-body .action { color: var(--text); }
+.step-body .notes {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-style: italic;
+}
+.step-body code {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  background: #1c1c1c;
+  border: 1px solid #2c2c2c;
+  color: var(--yellow);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* Tooltip */
+.tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: 300px;
+  padding: 10px 12px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tooltip.show { opacity: 1; transform: translateY(0); }
+.tooltip .t-title {
+  font-size: 0.8rem;
+  font-weight: 650;
+  margin-bottom: 4px;
+  color: var(--text);
+  font-family: var(--mono);
+}
+.tooltip .t-cat {
+  font-size: 0.65rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.tooltip .t-body {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+@media (max-width: 900px) {
+  body { overflow: auto; }
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(52vh, 1fr) auto;
+    height: auto;
+    min-height: 100vh;
+  }
+  .canvas { border-right: none; border-bottom: 1px solid var(--border); min-height: 52vh; height: 52vh; }
+  .sidebar { height: auto; max-height: none; }
+  .side-section.flows-section { flex: none; max-height: 280px; }
+  .side-section.steps-section { flex: none; }
+  .float-header { max-width: 90%; }
+}
+
+/* ── Soft gate (not real security) ── */
+html.locked body > *:not(#gate) { visibility: hidden !important; }
+#gate {
+  position: fixed; inset: 0; z-index: 99999;
+  display: none;
+  align-items: center; justify-content: center;
+  background: #0a0a0a;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #e8e8e8;
+}
+html.locked #gate { display: flex; }
+.gate-card {
+  width: min(360px, 92vw);
+  padding: 28px 24px;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  background: #141414;
+  text-align: center;
+}
+.gate-card h2 { margin: 0 0 8px; font-size: 1.1rem; font-weight: 650; }
+.gate-card p { margin: 0 0 16px; color: #9a9a9a; font-size: .85rem; }
+.gate-card input {
+  width: 100%; box-sizing: border-box;
+  padding: 10px 12px; border-radius: 8px;
+  border: 1px solid #3a3a3a; background: #0a0a0a; color: #fff;
+  font-size: 1rem; margin-bottom: 10px;
+}
+.gate-card button {
+  width: 100%; padding: 10px 12px; border: 0; border-radius: 8px;
+  background: #F5D000; color: #111; font-weight: 700; cursor: pointer;
+}
+.gate-card .err { color: #f07178; font-size: .8rem; min-height: 1.2em; margin-top: 8px; }
+
+</style>
+</head>
+<body>
+
+<div id="gate" role="dialog" aria-modal="true" aria-label="Acceso">
+  <div class="gate-card">
+    <h2>Perfeccionate — Architecture</h2>
+    <p>Clave para ver el diagrama (protección básica).</p>
+    <input id="gate-input" type="password" autocomplete="off" placeholder="Clave" />
+    <button type="button" id="gate-btn">Entrar</button>
+    <div class="err" id="gate-err"></div>
+  </div>
+</div>
+<script>
+(function () {
+  var KEY = "rp2026";
+  var FLAG = "perfeccionate-arch-gate-v1";
+  function unlock() {
+    document.documentElement.classList.remove("locked");
+    try { sessionStorage.setItem(FLAG, "1"); } catch (e) {}
+    var g = document.getElementById("gate");
+    if (g) g.remove();
+  }
+  function tryUnlock(val) {
+    if (String(val || "") === KEY) { unlock(); return true; }
+    var err = document.getElementById("gate-err");
+    if (err) err.textContent = "Clave incorrecta";
+    return false;
+  }
+  try {
+    if (sessionStorage.getItem(FLAG) === "1") { unlock(); return; }
+    document.documentElement.classList.add("locked");
+  } catch (e) { document.documentElement.classList.add("locked"); }
+
+  function bind() {
+    var inp = document.getElementById("gate-input");
+    var btn = document.getElementById("gate-btn");
+    if (!inp || !btn) return;
+    btn.addEventListener("click", function () { tryUnlock(inp.value); });
+    inp.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") tryUnlock(inp.value);
+    });
+    setTimeout(function () { inp.focus(); }, 50);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+})();
+</script>
+
+<div class="app">
+  <main class="canvas" aria-label="Diagrama de arquitectura">
+    <div class="float-header">
+      <h1>Perfeccionate — Architecture &amp; Flows</h1>
+      <p class="subtitle">Selecciona un flujo a la derecha para resaltar el camino en el diagrama.</p>
+      <div class="legend" aria-hidden="true">
+        <span class="legend-item"><span class="legend-dot" style="background:var(--cat-frontend)"></span>Frontend</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--cat-backend)"></span>Backend</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--cat-data)"></span>Database / Storage</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--cat-worker)"></span>Worker / Platform</span>
+        <span class="legend-item"><span class="legend-dot" style="background:var(--cat-external)"></span>External</span>
+      </div>
+    </div>
+    <div class="canvas-scroll">
+      <svg class="diagram" id="diagram" viewBox="0 0 1180 720" role="img" aria-label="Diagrama de arquitectura Perfeccionate"></svg>
+    </div>
+    <div class="meta-badges" id="meta-badges"></div>
+  </main>
+
+  <aside class="sidebar" aria-label="Flujos y pasos">
+    <section class="side-section flows-section">
+      <div class="side-head">
+        <h2>FLOWS</h2>
+        <button type="button" class="clear" id="btn-clear" title="Quitar selección">limpiar</button>
+      </div>
+      <div class="side-scroll" id="flows-list" role="listbox" aria-label="Lista de flujos"></div>
+    </section>
+    <section class="side-section steps-section">
+      <div class="side-head">
+        <h2>STEPS</h2>
+      </div>
+      <div class="side-scroll" id="steps-panel">
+        <p class="steps-empty">Elige un flujo para ver los pasos numerados del camino.</p>
+      </div>
+    </section>
+  </aside>
+</div>
+<div class="tooltip" id="tooltip" role="tooltip"></div>
+
+<script>
+const MODEL = {
+  "meta": {
+    "repo": "RolPlayAI/perfeccionate",
+    "generated": "2026-09-25T13:33:35Z",
+    "source": "readme + docs + code"
+  },
+  "nodes": [
+    {
+      "id": "browser",
+      "label": "Browser",
+      "type": "client",
+      "layer": "client",
+      "description": "Único cliente humano. Habla solo con perfeccionate-web (un origen). Cámara, Sense SDK y ffmpeg.wasm corren aquí; la cookie de sesión es first-party.",
+      "tech": [
+        "HTML/JS",
+        "Web Speech API",
+        "MediaDevices"
+      ],
+      "path": "frontend/web"
+    },
+    {
+      "id": "sense-sdk",
+      "label": "Rolplay Sense SDK",
+      "type": "client-lib",
+      "layer": "client",
+      "description": "Análisis en vivo (sonrisa, gesto, volumen, ritmo) en Rehearse/Record. Vendored en public; wasm MediaPipe same-origin. Rehearse no sube audio/video.",
+      "tech": [
+        "@mediapipe/tasks-vision",
+        "rolplay-sense"
+      ],
+      "path": "frontend/web/src/vendor/rolplay-sense"
+    },
+    {
+      "id": "ffmpeg-wasm",
+      "label": "ffmpeg.wasm",
+      "type": "client-lib",
+      "layer": "client",
+      "description": "Comprime la grabación a H.264/AAC MP4 en el dispositivo antes del upload. Optimización de tamaño; si falla, se sube el original.",
+      "tech": [
+        "@ffmpeg/core"
+      ],
+      "path": "frontend/web/src/lib/video-compress.ts"
+    },
+    {
+      "id": "partner-app",
+      "label": "Partner Rolplay app",
+      "type": "external-app",
+      "layer": "client",
+      "description": "Otra app Rolplay. Su backend pide un URL de login one-time (X-SSO-Key) y redirige el navegador. La clave nunca llega al browser.",
+      "tech": [
+        "backend-to-backend SSO"
+      ],
+      "path": "docs/sso-integration.md"
+    },
+    {
+      "id": "mcp-client",
+      "label": "MCP client / AI agent",
+      "type": "external-app",
+      "layer": "client",
+      "description": "Agente que llama herramientas MCP con Authorization: Bearer <agent key>. Alcance = tier de la clave (user/admin/superadmin/stats).",
+      "tech": [
+        "MCP",
+        "Bearer agent key"
+      ],
+      "path": "mcp-server/README.md"
+    },
+    {
+      "id": "next-web",
+      "label": "perfeccionate-web",
+      "type": "service",
+      "layer": "frontend",
+      "description": "Next.js App Router. Marketing en /, dashboard, practice, admin org, platform. Proxy server-side de /api/* hacia la API para cookie first-party. Autoscale Render 1–5.",
+      "tech": [
+        "Next.js",
+        "Docker",
+        "Render web"
+      ],
+      "path": "frontend/web"
+    },
+    {
+      "id": "fastapi-api",
+      "label": "perfeccionate-api",
+      "type": "service",
+      "layer": "api",
+      "description": "FastAPI JSON. Auth (cookie / X-API-Key / X-SSO-Key), videos, scenarios, grading, chat, org/platform admin, SSO. auth_guard es el único choke point. Monta /api/mcp. Autoscale 1–5.",
+      "tech": [
+        "FastAPI",
+        "uvicorn",
+        "Docker",
+        "Render web"
+      ],
+      "path": "backend/src/api"
+    },
+    {
+      "id": "mcp-endpoint",
+      "label": "MCP /api/mcp",
+      "type": "service",
+      "layer": "api",
+      "description": "MCP montado dentro de la API (mcp_app.py). Bearer → X-API-Key vía ASGI in-process. Mismas tools que mcp-server stdio. Sin servicio Render aparte.",
+      "tech": [
+        "MCP",
+        "httpx.ASGITransport"
+      ],
+      "path": "backend/src/api/mcp_app.py"
+    },
+    {
+      "id": "celery-worker",
+      "label": "perfeccionate-worker",
+      "type": "service",
+      "layer": "worker",
+      "description": "Celery en cola video-processing. Descarga, frames, MediaPipe, ElevenLabs+librosa, localiza feedback en/es-MX, guarda JSONB, luego grading LLM. Concurrency=1. Escala 1–15 vía queue-scaler.",
+      "tech": [
+        "Celery",
+        "ffmpeg",
+        "Docker",
+        "Render worker"
+      ],
+      "path": "backend/src/worker"
+    },
+    {
+      "id": "postgres",
+      "label": "Postgres + RLS",
+      "type": "datastore",
+      "layer": "data",
+      "description": "Fuente de verdad. FORCE ROW LEVEL SECURITY; tenant_context declara quién pregunta. No filtrar por tenant_id en app. Managed Render perfeccionate-db.",
+      "tech": [
+        "PostgreSQL 16",
+        "RLS",
+        "psycopg2"
+      ],
+      "path": "backend/db/migrations"
+    },
+    {
+      "id": "redis",
+      "label": "Redis / Valkey",
+      "type": "datastore",
+      "layer": "data",
+      "description": "Broker Celery (LLEN video-processing), circuit breaker LLM por proveedor, lectura del queue-scaler. Managed Key Value Render.",
+      "tech": [
+        "Redis/Valkey",
+        "Celery broker"
+      ],
+      "path": "backend/src/shared/queue.py"
+    },
+    {
+      "id": "s3",
+      "label": "S3 / object storage",
+      "type": "datastore",
+      "layer": "data",
+      "description": "Grabaciones y logos de branding. Stream autenticado vía API (/api/videos/{id}/stream); nunca URL pública directa. Local: MinIO.",
+      "tech": [
+        "AWS S3",
+        "MinIO (dev)"
+      ],
+      "path": "backend/src/shared/s3.py"
+    },
+    {
+      "id": "mediapipe",
+      "label": "MediaPipe",
+      "type": "library",
+      "layer": "analysis",
+      "description": "Inferencia local en el worker: sonrisa (blendshapes) y gestos/manos por frame. Sin costo de API vendor.",
+      "tech": [
+        "MediaPipe"
+      ],
+      "path": "backend/src/worker/utils/mediapipe_utils.py"
+    },
+    {
+      "id": "elevenlabs",
+      "label": "ElevenLabs",
+      "type": "external-api",
+      "layer": "external",
+      "description": "STT con timestamps a nivel de palabra. Solo si feature.speech está on para el tenant.",
+      "tech": [
+        "ElevenLabs API"
+      ],
+      "path": "backend/src/worker/utils/elevenlabs_utils.py"
+    },
+    {
+      "id": "librosa",
+      "label": "librosa (prosody)",
+      "type": "library",
+      "layer": "analysis",
+      "description": "Pitch, volume, pauses, rhythm sobre PCM + transcript. Local en el worker.",
+      "tech": [
+        "librosa"
+      ],
+      "path": "backend/src/worker/utils/prosody.py"
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "type": "external-api",
+      "layer": "external",
+      "description": "LLM primario vía shared/llm.py: grading y chat de coaching. Schema forzado (response_format).",
+      "tech": [
+        "OpenAI API"
+      ],
+      "path": "backend/src/shared/llm.py"
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "type": "external-api",
+      "layer": "external",
+      "description": "Fallback LLM cuando OpenAI falla o su circuit breaker está abierto (estado en Redis).",
+      "tech": [
+        "Anthropic API"
+      ],
+      "path": "backend/src/shared/llm.py"
+    },
+    {
+      "id": "queue-scaler",
+      "label": "perfeccionate-queue-scaler",
+      "type": "cron",
+      "layer": "ops",
+      "description": "Cron cada minuto. LLEN Redis → Render scale API. Sube inmediato; baja máx. 1 instancia/tick. Reemplaza autoscaler CPU del worker (1–15).",
+      "tech": [
+        "Render cron",
+        "Python"
+      ],
+      "path": "ops/queue-scaler/scale_worker.py"
+    },
+    {
+      "id": "retention",
+      "label": "perfeccionate-retention",
+      "type": "cron",
+      "layer": "ops",
+      "description": "Cron diario 08:00 UTC. Borra S3 + fila videos según retention_days del org (default 0 = forever). Misma imagen worker + RLS. Dry-run por defecto.",
+      "tech": [
+        "Render cron",
+        "Docker worker image"
+      ],
+      "path": "backend/src/jobs/retention.py"
+    },
+    {
+      "id": "render-api",
+      "label": "Render API",
+      "type": "external-api",
+      "layer": "ops",
+      "description": "API de Render usada por el queue-scaler para leer/setear numInstances de perfeccionate-worker (RENDER_API_KEY).",
+      "tech": [
+        "api.render.com"
+      ],
+      "path": "ops/queue-scaler/scale_worker.py"
+    },
+    {
+      "id": "sentry",
+      "label": "Sentry",
+      "type": "observability",
+      "layer": "ops",
+      "description": "Errores out-of-band (api + web projects). Tags: tenant_id, correlation_id, principal_kind. Sin video/transcript/chat. DSN vacío = off.",
+      "tech": [
+        "Sentry",
+        "rolplay-jl"
+      ],
+      "path": "docs/DEPLOYMENT.md"
+    },
+    {
+      "id": "platform-ui",
+      "label": "Platform panel",
+      "type": "ui-surface",
+      "layer": "frontend",
+      "description": "UI /platform para platform_admin: crear orgs + primer admin, thresholds, SSO keys, agent keys superadmin/stats, monitoring, activity.",
+      "tech": [
+        "Next.js routes"
+      ],
+      "path": "frontend/web/src/app/platform"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-browser-web",
+      "from": "browser",
+      "to": "next-web",
+      "label": "HTTPS (solo origen web)",
+      "kind": "http"
+    },
+    {
+      "id": "e-sense-browser",
+      "from": "sense-sdk",
+      "to": "browser",
+      "label": "análisis en vivo",
+      "kind": "local"
+    },
+    {
+      "id": "e-ffmpeg-browser",
+      "from": "ffmpeg-wasm",
+      "to": "browser",
+      "label": "compress pre-upload",
+      "kind": "local"
+    },
+    {
+      "id": "e-web-api",
+      "from": "next-web",
+      "to": "fastapi-api",
+      "label": "proxy /api/* (API_ORIGIN)",
+      "kind": "http-internal"
+    },
+    {
+      "id": "e-api-pg",
+      "from": "fastapi-api",
+      "to": "postgres",
+      "label": "tenant_context + RLS",
+      "kind": "db"
+    },
+    {
+      "id": "e-api-redis",
+      "from": "fastapi-api",
+      "to": "redis",
+      "label": "enqueue + breaker",
+      "kind": "queue"
+    },
+    {
+      "id": "e-api-s3",
+      "from": "fastapi-api",
+      "to": "s3",
+      "label": "upload / stream proxy",
+      "kind": "storage"
+    },
+    {
+      "id": "e-api-mcp",
+      "from": "fastapi-api",
+      "to": "mcp-endpoint",
+      "label": "monta /api/mcp",
+      "kind": "mount"
+    },
+    {
+      "id": "e-mcp-api",
+      "from": "mcp-endpoint",
+      "to": "fastapi-api",
+      "label": "ASGI → X-API-Key",
+      "kind": "http-internal"
+    },
+    {
+      "id": "e-mcp-client",
+      "from": "mcp-client",
+      "to": "mcp-endpoint",
+      "label": "Bearer agent key",
+      "kind": "http"
+    },
+    {
+      "id": "e-redis-worker",
+      "from": "redis",
+      "to": "celery-worker",
+      "label": "video-processing queue",
+      "kind": "queue"
+    },
+    {
+      "id": "e-worker-pg",
+      "from": "celery-worker",
+      "to": "postgres",
+      "label": "result JSONB + grade",
+      "kind": "db"
+    },
+    {
+      "id": "e-worker-s3",
+      "from": "celery-worker",
+      "to": "s3",
+      "label": "download / re-upload mp4",
+      "kind": "storage"
+    },
+    {
+      "id": "e-worker-mp",
+      "from": "celery-worker",
+      "to": "mediapipe",
+      "label": "smile + gesture",
+      "kind": "compute"
+    },
+    {
+      "id": "e-worker-el",
+      "from": "celery-worker",
+      "to": "elevenlabs",
+      "label": "STT (si speech on)",
+      "kind": "http"
+    },
+    {
+      "id": "e-worker-librosa",
+      "from": "celery-worker",
+      "to": "librosa",
+      "label": "prosody",
+      "kind": "compute"
+    },
+    {
+      "id": "e-worker-openai",
+      "from": "celery-worker",
+      "to": "openai",
+      "label": "grading (primary)",
+      "kind": "http"
+    },
+    {
+      "id": "e-worker-anthropic",
+      "from": "celery-worker",
+      "to": "anthropic",
+      "label": "grading fallback",
+      "kind": "http"
+    },
+    {
+      "id": "e-api-openai",
+      "from": "fastapi-api",
+      "to": "openai",
+      "label": "chat coaching",
+      "kind": "http"
+    },
+    {
+      "id": "e-api-anthropic",
+      "from": "fastapi-api",
+      "to": "anthropic",
+      "label": "chat fallback",
+      "kind": "http"
+    },
+    {
+      "id": "e-scaler-redis",
+      "from": "queue-scaler",
+      "to": "redis",
+      "label": "LLEN depth",
+      "kind": "queue"
+    },
+    {
+      "id": "e-scaler-render",
+      "from": "queue-scaler",
+      "to": "render-api",
+      "label": "scale worker",
+      "kind": "http"
+    },
+    {
+      "id": "e-render-worker",
+      "from": "render-api",
+      "to": "celery-worker",
+      "label": "numInstances 1–15",
+      "kind": "control"
+    },
+    {
+      "id": "e-retention-pg",
+      "from": "retention",
+      "to": "postgres",
+      "label": "RLS delete rows",
+      "kind": "db"
+    },
+    {
+      "id": "e-retention-s3",
+      "from": "retention",
+      "to": "s3",
+      "label": "delete objects",
+      "kind": "storage"
+    },
+    {
+      "id": "e-partner-sso",
+      "from": "partner-app",
+      "to": "fastapi-api",
+      "label": "POST /api/sso/start",
+      "kind": "http"
+    },
+    {
+      "id": "e-partner-redirect",
+      "from": "partner-app",
+      "to": "browser",
+      "label": "302 → login URL",
+      "kind": "http"
+    },
+    {
+      "id": "e-sso-exchange",
+      "from": "browser",
+      "to": "next-web",
+      "label": "/api/auth/sso/exchange",
+      "kind": "http"
+    },
+    {
+      "id": "e-platform-ui",
+      "from": "platform-ui",
+      "to": "next-web",
+      "label": "rutas /platform",
+      "kind": "ui"
+    },
+    {
+      "id": "e-web-sentry",
+      "from": "next-web",
+      "to": "sentry",
+      "label": "browser + server errors",
+      "kind": "telemetry"
+    },
+    {
+      "id": "e-api-sentry",
+      "from": "fastapi-api",
+      "to": "sentry",
+      "label": "API errors",
+      "kind": "telemetry"
+    },
+    {
+      "id": "e-worker-sentry",
+      "from": "celery-worker",
+      "to": "sentry",
+      "label": "job errors",
+      "kind": "telemetry"
+    },
+    {
+      "id": "e-scaler-sentry",
+      "from": "queue-scaler",
+      "to": "sentry",
+      "label": "cron monitor",
+      "kind": "telemetry"
+    },
+    {
+      "id": "e-retention-sentry",
+      "from": "retention",
+      "to": "sentry",
+      "label": "cron monitor",
+      "kind": "telemetry"
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow-practice",
+      "name": "Práctica: grabar → analizar → calificar",
+      "description": "Record en browser (Sense + compress opcional) → POST /api/videos → S3 + fila queued → Celery process_video_task → MediaPipe/ElevenLabs/librosa → JSONB → grading LLM → UI resultados.",
+      "steps": [
+        {
+          "node": "browser",
+          "action": "Usuario abre /practice/record, graba con cámara",
+          "notes": "Sense SDK muestra métricas en vivo; no se muestran scores finales durante Record"
+        },
+        {
+          "node": "sense-sdk",
+          "action": "Análisis en vivo local (sonrisa/gesto/etc.)",
+          "notes": "Wasm MediaPipe same-origin"
+        },
+        {
+          "node": "ffmpeg-wasm",
+          "action": "Re-encode H.264/AAC MP4 on-device",
+          "notes": "Fallback a original si falla"
+        },
+        {
+          "node": "next-web",
+          "action": "POST /api/videos (proxy)",
+          "notes": "Cookie first-party"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "validate_and_upload + create_video + add_video_job",
+          "notes": "routes/videos.py; status queued"
+        },
+        {
+          "node": "s3",
+          "action": "Almacena objeto de grabación",
+          "notes": "URL interna, no pública"
+        },
+        {
+          "node": "postgres",
+          "action": "Inserta fila videos bajo RLS",
+          "notes": "tenant_context del principal"
+        },
+        {
+          "node": "redis",
+          "action": "Encola job en video-processing",
+          "notes": "correlation_id viaja al worker"
+        },
+        {
+          "node": "celery-worker",
+          "action": "process_video_task: download, frames, análisis",
+          "notes": "acks_late, max_retries=3"
+        },
+        {
+          "node": "mediapipe",
+          "action": "Smile + gesture por frame",
+          "notes": "Skip si feature flags off"
+        },
+        {
+          "node": "elevenlabs",
+          "action": "Transcribe audio (word timestamps)",
+          "notes": "Solo feature.speech"
+        },
+        {
+          "node": "librosa",
+          "action": "Prosody (pitch/volume/pauses/rhythm)",
+          "notes": "Sobre PCM"
+        },
+        {
+          "node": "postgres",
+          "action": "merge/update result JSONB + feedback en/es-MX",
+          "notes": "Mediciones duraderas antes del grade"
+        },
+        {
+          "node": "openai",
+          "action": "grade_video (primary) o Anthropic fallback",
+          "notes": "Fuera del failure path de mediciones; bilingüe en/es-MX"
+        },
+        {
+          "node": "next-web",
+          "action": "UI /videos/[id] poll status + grade",
+          "notes": "GET grade no recomputa"
+        },
+        {
+          "node": "browser",
+          "action": "Usuario ve scores, band y coach",
+          "notes": "Chat coaching vía LLM"
+        }
+      ]
+    },
+    {
+      "id": "flow-auth",
+      "name": "Auth / sesión (cookie first-party)",
+      "description": "Login vía Next; cookie httponly SameSite=Lax en el origen de la web. Proxy server-side reenvía /api/*; auth_guard en FastAPI valida la sesión en cada request.",
+      "steps": [
+        {
+          "node": "browser",
+          "action": "POST credenciales a /api/auth/login (vía web)",
+          "notes": "Middleware proxy.ts solo mira presencia de cookie"
+        },
+        {
+          "node": "next-web",
+          "action": "Proxy /api/* → API_ORIGIN",
+          "notes": "Cookie permanece first-party"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "auth_guard establece Principal(kind=user)",
+          "notes": "Session cookie firmada con SESSION_SECRET"
+        },
+        {
+          "node": "postgres",
+          "action": "Lookup user + tenant status",
+          "notes": "Org suspendida corta en cada request"
+        },
+        {
+          "node": "browser",
+          "action": "Redirect AFTER_LOGIN → /dashboard",
+          "notes": "session.ts"
+        }
+      ]
+    },
+    {
+      "id": "flow-sso",
+      "name": "SSO handoff desde otra app Rolplay",
+      "description": "Backend partner POST /api/sso/start con X-SSO-Key → URL one-time 60s → redirect browser → /api/auth/sso/exchange → cookie de sesión en app host.",
+      "steps": [
+        {
+          "node": "partner-app",
+          "action": "POST /api/sso/start (X-SSO-Key)",
+          "notes": "Server-to-server al API host; rate limit 60/min"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "sso_context + tenant_context; mint code",
+          "notes": "Crea member passwordless si no existe"
+        },
+        {
+          "node": "postgres",
+          "action": "Upsert user / store one-time code",
+          "notes": "Email único platform-wide"
+        },
+        {
+          "node": "partner-app",
+          "action": "302/303 browser a url (app host)",
+          "notes": "No fetch, no iframe, no email"
+        },
+        {
+          "node": "browser",
+          "action": "GET /api/auth/sso/exchange?code=…",
+          "notes": "Vía perfeccionate-web"
+        },
+        {
+          "node": "next-web",
+          "action": "Proxy exchange",
+          "notes": "APP_BASE_URL = app host"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "Consume code → Set-Cookie sesión",
+          "notes": "Single-use, 60s TTL"
+        },
+        {
+          "node": "browser",
+          "action": "Land en redirect_path (/dashboard o /practice/…)",
+          "notes": "Path only, no open redirect"
+        }
+      ]
+    },
+    {
+      "id": "flow-platform-onboard",
+      "name": "Platform admin onboardea una org",
+      "description": "platform_admin en /platform crea organización + primer admin; puede emitir SSO keys y tunear thresholds. No ve recordings/transcripts/chats de orgs.",
+      "steps": [
+        {
+          "node": "browser",
+          "action": "Sesión platform_admin abre /platform",
+          "notes": "Principal kind distinto a org admin"
+        },
+        {
+          "node": "platform-ui",
+          "action": "Formulario nueva org (nombre + admin email)",
+          "notes": "frontend/web/src/app/platform"
+        },
+        {
+          "node": "next-web",
+          "action": "Proxy POST /api/platform/organisations",
+          "notes": ""
+        },
+        {
+          "node": "fastapi-api",
+          "action": "create_tenant + add_user(role=admin)",
+          "notes": "routes/platform.py; password one-time"
+        },
+        {
+          "node": "postgres",
+          "action": "Insert tenants + users",
+          "notes": "RLS; platform no toca videos"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "Opcional: issue SSO key / settings thresholds",
+          "notes": "PUT …/settings bajo tenant_context"
+        },
+        {
+          "node": "browser",
+          "action": "Entrega password al admin de la org",
+          "notes": "Onboarding completo vía producto"
+        }
+      ]
+    },
+    {
+      "id": "flow-mcp",
+      "name": "Agente MCP llama tools de la API",
+      "description": "Cliente MCP → /api/mcp con Bearer agent key → mcp_app traduce a X-API-Key → auth_guard + _API_KEY_ROUTES. Tools: recordings, scenarios, teams, branding, chat, platform…",
+      "steps": [
+        {
+          "node": "mcp-client",
+          "action": "Invoca tool MCP (p.ej. list recordings)",
+          "notes": "URL …/api/mcp + Bearer rp_live_…"
+        },
+        {
+          "node": "mcp-endpoint",
+          "action": "Lee Bearer; tool → request ASGI interno",
+          "notes": "Header X-Mcp-Tool para activity_log"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "auth_guard (X-API-Key) + guards de tier",
+          "notes": "user/admin/superadmin/stats"
+        },
+        {
+          "node": "postgres",
+          "action": "Query bajo RLS del principal de la key",
+          "notes": "sees_whole_organisation según tier"
+        },
+        {
+          "node": "s3",
+          "action": "Si tool sube archivo (recording/logo/csv)",
+          "notes": "submit_recording_from_file etc."
+        },
+        {
+          "node": "mcp-client",
+          "action": "Recibe respuesta de la tool",
+          "notes": "Sin mint de keys ni SSO desde MCP"
+        }
+      ]
+    },
+    {
+      "id": "flow-autoscaling",
+      "name": "Autoscaling por profundidad de cola",
+      "description": "Cron cada minuto: LLEN Redis video-processing → desired instances → Render scale. Sube ya; baja de a 1. Worker sin scaling: de Render.",
+      "steps": [
+        {
+          "node": "queue-scaler",
+          "action": "Tick cron (* * * * *)",
+          "notes": "ops/queue-scaler/scale_worker.py"
+        },
+        {
+          "node": "redis",
+          "action": "LLEN video-processing",
+          "notes": "Mismo read que monitoring"
+        },
+        {
+          "node": "render-api",
+          "action": "GET service + POST /scale numInstances",
+          "notes": "RENDER_API_KEY personal"
+        },
+        {
+          "node": "celery-worker",
+          "action": "Instancias 1–15 (TARGET_QUEUE_PER_INSTANCE=3)",
+          "notes": "Scale-down máx. −1/tick"
+        },
+        {
+          "node": "sentry",
+          "action": "Cron check-in monitor",
+          "notes": "Missed tick = alerta"
+        }
+      ]
+    },
+    {
+      "id": "flow-request-path",
+      "name": "Request path browser → Next → FastAPI → DB/S3",
+      "description": "Camino estándar de cualquier llamada autenticada de UI: browser → perfeccionate-web → proxy → perfeccionate-api → Postgres RLS y/o S3 stream.",
+      "steps": [
+        {
+          "node": "browser",
+          "action": "fetch('/api/…') same-origin",
+          "notes": "CSP connect-src 'self'"
+        },
+        {
+          "node": "next-web",
+          "action": "Server proxy a API_ORIGIN",
+          "notes": "http://perfeccionate-api:8000 en Render"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "auth_guard + route handler (offload sync)",
+          "notes": "offload evita bloquear event loop"
+        },
+        {
+          "node": "postgres",
+          "action": "Query/escritura con tenant_context",
+          "notes": "FORCE RLS"
+        },
+        {
+          "node": "s3",
+          "action": "Si stream/upload de media",
+          "notes": "GET /api/videos/{id}/stream"
+        },
+        {
+          "node": "sentry",
+          "action": "Errores con correlation_id / tenant_id",
+          "notes": "Out of band"
+        }
+      ]
+    },
+    {
+      "id": "flow-retention",
+      "name": "Retención nocturna de grabaciones",
+      "description": "Cron 08:00 UTC borra objetos S3 + filas según retention_days por org. Default 0 = keep forever. Dry-run true de fábrica.",
+      "steps": [
+        {
+          "node": "retention",
+          "action": "python -m src.jobs.retention",
+          "notes": "Imagen worker; RETENTION_DRY_RUN"
+        },
+        {
+          "node": "postgres",
+          "action": "Lista videos vencidos bajo RLS por tenant",
+          "notes": "retention_days setting"
+        },
+        {
+          "node": "s3",
+          "action": "delete_object; si falla, conserva fila",
+          "notes": "Consistencia object/row"
+        },
+        {
+          "node": "postgres",
+          "action": "Delete videos row si S3 OK",
+          "notes": "Sin versionado de bucket"
+        },
+        {
+          "node": "sentry",
+          "action": "Check-in + errores por org",
+          "notes": "Monitor perfeccionate-retention"
+        }
+      ]
+    },
+    {
+      "id": "flow-rehearse",
+      "name": "Rehearse (solo dispositivo)",
+      "description": "Modo ensayo: Sense en browser, nada de audio/video sale del dispositivo. Solo un ping de uso POST /api/practice/rehearsals (tenant_id + timestamp).",
+      "steps": [
+        {
+          "node": "browser",
+          "action": "Abre /practice/rehearse",
+          "notes": "Sin MediaRecorder de upload"
+        },
+        {
+          "node": "sense-sdk",
+          "action": "Métricas en vivo en pantalla",
+          "notes": "Nada se guarda del contenido"
+        },
+        {
+          "node": "next-web",
+          "action": "Proxy POST /api/practice/rehearsals",
+          "notes": "KPI de uso"
+        },
+        {
+          "node": "fastapi-api",
+          "action": "record_rehearsal_event",
+          "notes": "Sin transcript ni media"
+        },
+        {
+          "node": "postgres",
+          "action": "Cuenta evento de rehearsal",
+          "notes": "platform stats"
+        }
+      ]
+    }
+  ]
+};
+
+(function () {
+  "use strict";
+
+  const CAT = {
+    frontend:  { ids: new Set(["browser","sense-sdk","ffmpeg-wasm","next-web","platform-ui"]), color: "var(--cat-frontend)", label: "Frontend" },
+    backend:   { ids: new Set(["fastapi-api","mcp-endpoint"]), color: "var(--cat-backend)", label: "Backend" },
+    data:      { ids: new Set(["postgres","redis","s3"]), color: "var(--cat-data)", label: "Database / Storage" },
+    worker:    { ids: new Set(["celery-worker","mediapipe","librosa","queue-scaler","retention"]), color: "var(--cat-worker)", label: "Worker / Platform" },
+    external:  { ids: new Set(["partner-app","mcp-client","elevenlabs","openai","anthropic","render-api","sentry"]), color: "var(--cat-external)", label: "External" },
+  };
+
+  function categoryOf(id) {
+    for (const [k, v] of Object.entries(CAT)) if (v.ids.has(id)) return k;
+    return "external";
+  }
+  function catColor(id) {
+    const k = categoryOf(id);
+    const map = { frontend: "#5b8cff", backend: "#3dd6c6", data: "#7fd99a", worker: "#f5a524", external: "#c084fc" };
+    return map[k] || "#888";
+  }
+
+  // Layered fixed layout (designed, not random)
+  // Columns: client | frontend | api/worker | analysis | data | external
+  const NW = 138, NH = 42;
+  const POS = {
+    // Client
+    "browser":      [48,  90],
+    "sense-sdk":    [48, 200],
+    "ffmpeg-wasm":  [48, 290],
+    "partner-app":  [48, 420],
+    "mcp-client":   [48, 530],
+    // Frontend
+    "next-web":     [260, 110],
+    "platform-ui":  [260, 230],
+    // API / Worker / Ops
+    "fastapi-api":  [480, 110],
+    "mcp-endpoint": [480, 250],
+    "celery-worker":[480, 400],
+    "queue-scaler": [260, 500],
+    "retention":    [260, 600],
+    "render-api":   [480, 560],
+    // Analysis (near worker)
+    "mediapipe":    [700, 340],
+    "librosa":      [700, 440],
+    // Data
+    "postgres":     [700, 70],
+    "redis":        [700, 170],
+    "s3":           [700, 260],
+    // External vendors / observability
+    "openai":       [940, 90],
+    "anthropic":    [940, 180],
+    "elevenlabs":   [940, 340],
+    "sentry":       [940, 560],
+  };
+
+  const nodesById = Object.fromEntries(MODEL.nodes.map(n => [n.id, n]));
+  const svg = document.getElementById("diagram");
+  const flowsEl = document.getElementById("flows-list");
+  const stepsEl = document.getElementById("steps-panel");
+  const tip = document.getElementById("tooltip");
+  const badges = document.getElementById("meta-badges");
+
+  let activeFlowId = null;
+
+  // Meta badges
+  badges.innerHTML =
+    `<span class="badge"><strong>${escapeHtml(MODEL.meta.repo)}</strong></span>` +
+    `<span class="badge">${MODEL.nodes.length} nodos</span>` +
+    `<span class="badge">${MODEL.edges.length} edges</span>` +
+    `<span class="badge">${MODEL.flows.length} flows</span>`;
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+      ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+  }
+
+  function nodeCenter(id) {
+    const p = POS[id];
+    if (!p) return [0, 0];
+    return [p[0] + NW / 2, p[1] + NH / 2];
+  }
+
+  function anchorPoint(from, to) {
+    // Exit/enter at box border toward the other node
+    const [cx1, cy1] = nodeCenter(from);
+    const [cx2, cy2] = nodeCenter(to);
+    const dx = cx2 - cx1, dy = cy2 - cy1;
+    const hw = NW / 2, hh = NH / 2;
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return [cx1, cy1];
+    // intersect with rect from center
+    const sx = dx === 0 ? Infinity : hw / Math.abs(dx);
+    const sy = dy === 0 ? Infinity : hh / Math.abs(dy);
+    const t = Math.min(sx, sy);
+    return [cx1 + dx * t, cy1 + dy * t];
+  }
+
+  function edgePath(from, to) {
+    const [x1, y1] = anchorPoint(from, to);
+    const [x2, y2] = anchorPoint(to, from);
+    const dx = x2 - x1, dy = y2 - y1;
+    // Rounded orthogonal-ish bezier
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const bend = Math.min(60, Math.hypot(dx, dy) * 0.22);
+    // Prefer horizontal then vertical feel
+    if (Math.abs(dx) > Math.abs(dy)) {
+      return `M ${x1} ${y1} C ${x1 + Math.sign(dx) * bend} ${y1}, ${x2 - Math.sign(dx) * bend} ${y2}, ${x2} ${y2}`;
+    }
+    return `M ${x1} ${y1} C ${x1} ${y1 + Math.sign(dy || 1) * bend}, ${x2} ${y2 - Math.sign(dy || 1) * bend}, ${x2} ${y2}`;
+  }
+
+  // Defs
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  defs.innerHTML = `
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="nodeShadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+`;
+  svg.appendChild(defs);
+
+  // Layer labels
+  [
+    { x: 48, y: 36, t: "Client" },
+    { x: 260, y: 36, t: "Frontend" },
+    { x: 480, y: 36, t: "API / Worker" },
+    { x: 700, y: 36, t: "Data / Analysis" },
+    { x: 940, y: 36, t: "External" },
+  ].forEach(L => {
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("class", "layer-label");
+    t.setAttribute("x", L.x);
+    t.setAttribute("y", L.y);
+    t.textContent = L.t;
+    svg.appendChild(t);
+  });
+
+  const edgeG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  edgeG.setAttribute("id", "edges");
+  svg.appendChild(edgeG);
+
+  const anchorsG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  anchorsG.setAttribute("id", "anchors");
+  svg.appendChild(anchorsG);
+
+  MODEL.edges.forEach(e => {
+    if (!POS[e.from] || !POS[e.to]) return;
+    const d = edgePath(e.from, e.to);
+
+    const glow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    glow.setAttribute("class", "edge-glow");
+    glow.setAttribute("d", d);
+    glow.dataset.id = e.id;
+    edgeG.appendChild(glow);
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("class", "edge");
+    path.setAttribute("d", d);
+
+    path.dataset.id = e.id;
+    path.dataset.from = e.from;
+    path.dataset.to = e.to;
+    edgeG.appendChild(path);
+
+    const [ax, ay] = anchorPoint(e.from, e.to);
+    const [bx, by] = anchorPoint(e.to, e.from);
+    [[ax, ay], [bx, by]].forEach(([x, y], i) => {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("class", "anchor-dot");
+      c.setAttribute("r", "3.5");
+      c.setAttribute("cx", x);
+      c.setAttribute("cy", y);
+      c.dataset.edge = e.id;
+      c.dataset.end = String(i);
+      anchorsG.appendChild(c);
+    });
+  });
+
+  // Virtual paths for consecutive steps without a MODEL edge (under crisp edges)
+  const virtG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  virtG.setAttribute("id", "virt-edges");
+  edgeG.insertBefore(virtG, edgeG.firstChild);
+
+  const nodeG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  nodeG.setAttribute("id", "nodes");
+  svg.appendChild(nodeG);
+
+  MODEL.nodes.forEach(n => {
+    const p = POS[n.id];
+    if (!p) return;
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("class", "node");
+    g.dataset.id = n.id;
+    g.setAttribute("transform", `translate(${p[0]}, ${p[1]})`);
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("class", "box");
+    rect.setAttribute("width", NW);
+    rect.setAttribute("height", NH);
+    rect.setAttribute("rx", "8");
+    rect.setAttribute("ry", "8");
+    g.appendChild(rect);
+
+    // category accent bar
+    const bar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bar.setAttribute("class", "accent");
+    bar.setAttribute("x", "0");
+    bar.setAttribute("y", "0");
+    bar.setAttribute("width", "4");
+    bar.setAttribute("height", NH);
+    bar.setAttribute("rx", "2");
+    bar.setAttribute("fill", catColor(n.id));
+    g.appendChild(bar);
+
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("class", "label");
+    label.setAttribute("x", NW / 2 + 2);
+    label.setAttribute("y", 18);
+    label.setAttribute("text-anchor", "middle");
+    const lab = n.label.length > 18 ? n.label.slice(0, 16) + "…" : n.label;
+    label.textContent = lab;
+    g.appendChild(label);
+
+    const chip = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    chip.setAttribute("class", "chip");
+    chip.setAttribute("x", NW / 2 + 2);
+    chip.setAttribute("y", 32);
+    chip.setAttribute("text-anchor", "middle");
+    chip.textContent = (n.type || n.layer || "").replace(/-/g, " ");
+    g.appendChild(chip);
+
+    g.addEventListener("mouseenter", (ev) => showTip(n, ev));
+    g.addEventListener("mousemove", moveTip);
+    g.addEventListener("mouseleave", hideTip);
+
+    nodeG.appendChild(g);
+  });
+
+  const stepBadgeG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  stepBadgeG.setAttribute("id", "step-badges");
+  svg.appendChild(stepBadgeG);
+
+  function showTip(n, ev) {
+    const cat = CAT[categoryOf(n.id)];
+    tip.innerHTML =
+      `<div class="t-title">${escapeHtml(n.label)}</div>` +
+      `<div class="t-cat">${escapeHtml(cat ? cat.label : n.layer)} · ${escapeHtml(n.type)}</div>` +
+      `<div class="t-body">${escapeHtml(n.description)}</div>`;
+    tip.classList.add("show");
+    moveTip(ev);
+  }
+  function moveTip(ev) {
+    const x = Math.min(ev.clientX + 14, window.innerWidth - 320);
+    const y = Math.min(ev.clientY + 14, window.innerHeight - 140);
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  function hideTip() { tip.classList.remove("show"); }
+
+  function flowNodeSet(flow) {
+    return new Set(flow.steps.map(s => s.node));
+  }
+
+  function flowEdgeSet(flow) {
+    const nodes = flow.steps.map(s => s.node);
+    const wanted = new Set();
+    // consecutive step pairs (skip self)
+    for (let i = 0; i < nodes.length - 1; i++) {
+      const a = nodes[i], b = nodes[i + 1];
+      if (a === b) continue;
+      MODEL.edges.forEach(e => {
+        if ((e.from === a && e.to === b) || (e.from === b && e.to === a)) wanted.add(e.id);
+      });
+    }
+    // also edges between any two nodes that appear in the flow (keeps path connected)
+    const set = flowNodeSet(flow);
+    MODEL.edges.forEach(e => {
+      if (set.has(e.from) && set.has(e.to)) wanted.add(e.id);
+    });
+    return wanted;
+  }
+
+  function midPointOnPath(d) {
+    // Approximate midpoint of cubic bezier "M x y C c1x c1y, c2x c2y, x2 y2"
+    const m = d.match(/M\s*([\d.-]+)\s+([\d.-]+)\s+C\s*([\d.-]+)\s+([\d.-]+),\s*([\d.-]+)\s+([\d.-]+),\s*([\d.-]+)\s+([\d.-]+)/);
+    if (!m) return [0, 0];
+    const nums = m.slice(1).map(Number);
+    const [x0,y0,x1,y1,x2,y2,x3,y3] = nums;
+    const t = 0.5;
+    const mt = 1 - t;
+    const x = mt*mt*mt*x0 + 3*mt*mt*t*x1 + 3*mt*t*t*x2 + t*t*t*x3;
+    const y = mt*mt*mt*y0 + 3*mt*mt*t*y1 + 3*mt*t*t*y2 + t*t*t*y3;
+    return [x, y];
+  }
+
+  function findEdgeId(a, b) {
+    const hit = MODEL.edges.find(e =>
+      (e.from === a && e.to === b) || (e.from === b && e.to === a)
+    );
+    return hit ? hit.id : null;
+  }
+
+  function applyHighlight() {
+    const flow = activeFlowId ? MODEL.flows.find(f => f.id === activeFlowId) : null;
+    const nset = flow ? flowNodeSet(flow) : null;
+    const eset = flow ? flowEdgeSet(flow) : null;
+
+    svg.querySelectorAll(".node").forEach(el => {
+      const id = el.dataset.id;
+      el.classList.toggle("dim", !!(nset && !nset.has(id)));
+      el.classList.toggle("hi", !!(nset && nset.has(id)));
+    });
+    svg.querySelectorAll(".edge").forEach(el => {
+      const id = el.dataset.id;
+      const on = !!(eset && eset.has(id));
+      el.classList.toggle("dim", !!(eset && !eset.has(id)));
+      el.classList.toggle("hi", on);
+
+    });
+    svg.querySelectorAll(".edge-glow").forEach(el => {
+      const id = el.dataset.id;
+      const on = !!(eset && eset.has(id));
+      el.classList.toggle("hi", on);
+      el.classList.toggle("dim", !!(eset && !on));
+    });
+    svg.querySelectorAll(".anchor-dot").forEach(el => {
+      const on = !!(eset && eset.has(el.dataset.edge));
+      el.classList.toggle("hi", on);
+    });
+
+    // Step numbers on consecutive hop lines
+    const badgeG = document.getElementById("step-badges");
+    const virtG = document.getElementById("virt-edges");
+    badgeG.innerHTML = "";
+    virtG.innerHTML = "";
+    if (!flow) return;
+
+    const hops = [];
+    for (let i = 0; i < flow.steps.length - 1; i++) {
+      const a = flow.steps[i].node;
+      const b = flow.steps[i + 1].node;
+      if (!a || !b || a === b || !POS[a] || !POS[b]) continue;
+      hops.push({ from: a, to: b, num: i + 1 });
+    }
+
+    // Deduplicate overlapping hops that share the same undirected edge: keep first number
+    const usedMid = new Set();
+    hops.forEach(h => {
+      const eid = findEdgeId(h.from, h.to);
+      let d;
+      if (eid) {
+        const p = svg.querySelector(`.edge[data-id="${eid}"]`);
+        d = p ? p.getAttribute("d") : edgePath(h.from, h.to);
+      } else {
+        d = edgePath(h.from, h.to);
+        const glow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        glow.setAttribute("class", "edge-glow hi");
+        glow.setAttribute("d", d);
+        virtG.appendChild(glow);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("class", "edge hi");
+        path.setAttribute("d", d);
+
+        virtG.appendChild(path);
+      }
+      const [mx, my] = midPointOnPath(d);
+      const key = mx.toFixed(1) + "," + my.toFixed(1);
+      // slight offset if two badges collide
+      let ox = 0, oy = 0;
+      if (usedMid.has(key)) { oy = -14; }
+      usedMid.add(key);
+
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class", "step-badge");
+      g.setAttribute("transform", `translate(${mx + ox}, ${my + oy})`);
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("r", "10");
+      g.appendChild(c);
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", "0");
+      t.setAttribute("y", "0");
+      t.textContent = String(h.num);
+      g.appendChild(t);
+      badgeG.appendChild(g);
+    });
+  }
+
+  function codeChip(text) {
+    return `<code>${escapeHtml(text)}</code>`;
+  }
+
+  function renderSteps(flow) {
+    if (!flow) {
+      stepsEl.innerHTML = `<p class="steps-empty">Elige un flujo para ver los pasos numerados del camino.</p>`;
+      return;
+    }
+    const intro = `<p class="steps-intro">${escapeHtml(flow.description)}</p>`;
+    const items = flow.steps.map((s, i) => {
+      const nn = nodesById[s.node];
+      const label = nn ? nn.label : s.node;
+      const action = escapeHtml(s.action).replace(
+        new RegExp(escapeHtml(label).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
+        codeChip(label)
+      );
+      // also wrap common tech tokens already in action if they match node labels nearby
+      let actionHtml = action;
+      // Prefer leading chip for the step node
+      const notes = s.notes ? `<span class="notes">${escapeHtml(s.notes)}</span>` : "";
+      return `<li>
+        <span class="step-num" aria-hidden="true">${i + 1}</span>
+        <div class="step-body">
+          <span class="action">${codeChip(label)} — ${escapeHtml(s.action)}</span>
+          ${notes}
+        </div>
+      </li>`;
+    }).join("");
+    stepsEl.innerHTML = intro + `<ol class="steps-list">${items}</ol>`;
+  }
+
+  function selectFlow(id) {
+    activeFlowId = activeFlowId === id ? null : id;
+    document.querySelectorAll(".flow-btn").forEach(b => {
+      const on = b.dataset.id === activeFlowId;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    applyHighlight();
+    renderSteps(activeFlowId ? MODEL.flows.find(f => f.id === activeFlowId) : null);
+  }
+
+  MODEL.flows.forEach((f, idx) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "flow-btn";
+    btn.dataset.id = f.id;
+    btn.setAttribute("role", "option");
+    btn.setAttribute("aria-selected", "false");
+    btn.id = "flow-" + f.id;
+    btn.innerHTML =
+      `<span class="name">${escapeHtml(f.name)}</span>` +
+      `<span class="desc">${escapeHtml(f.description)}</span>`;
+    btn.addEventListener("click", () => selectFlow(f.id));
+    btn.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        selectFlow(f.id);
+      } else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        const buttons = [...flowsEl.querySelectorAll(".flow-btn")];
+        const i = buttons.indexOf(btn);
+        const next = ev.key === "ArrowDown"
+          ? buttons[(i + 1) % buttons.length]
+          : buttons[(i - 1 + buttons.length) % buttons.length];
+        next.focus();
+      }
+    });
+    flowsEl.appendChild(btn);
+  });
+
+  document.getElementById("btn-clear").addEventListener("click", () => {
+    activeFlowId = null;
+    document.querySelectorAll(".flow-btn").forEach(b => {
+      b.classList.remove("active");
+      b.setAttribute("aria-selected", "false");
+    });
+    applyHighlight();
+    renderSteps(null);
+  });
+
+  // Auto-select first flow so the page feels alive like the demo
+  if (MODEL.flows.length) selectFlow(MODEL.flows[0].id);
+})();
+</script>
+</body>
+</html>
