@@ -1,0 +1,371 @@
+{
+  "meta": {
+    "repo": "RolPlayAI/perfeccionate",
+    "generated": "2026-09-25T13:33:35Z",
+    "source": "readme + docs + code"
+  },
+  "nodes": [
+    {
+      "id": "browser",
+      "label": "Browser",
+      "type": "client",
+      "layer": "client",
+      "description": "Único cliente humano. Habla solo con perfeccionate-web (un origen). Cámara, Sense SDK y ffmpeg.wasm corren aquí; la cookie de sesión es first-party.",
+      "tech": ["HTML/JS", "Web Speech API", "MediaDevices"],
+      "path": "frontend/web"
+    },
+    {
+      "id": "sense-sdk",
+      "label": "Rolplay Sense SDK",
+      "type": "client-lib",
+      "layer": "client",
+      "description": "Análisis en vivo (sonrisa, gesto, volumen, ritmo) en Rehearse/Record. Vendored en public; wasm MediaPipe same-origin. Rehearse no sube audio/video.",
+      "tech": ["@mediapipe/tasks-vision", "rolplay-sense"],
+      "path": "frontend/web/src/vendor/rolplay-sense"
+    },
+    {
+      "id": "ffmpeg-wasm",
+      "label": "ffmpeg.wasm",
+      "type": "client-lib",
+      "layer": "client",
+      "description": "Comprime la grabación a H.264/AAC MP4 en el dispositivo antes del upload. Optimización de tamaño; si falla, se sube el original.",
+      "tech": ["@ffmpeg/core"],
+      "path": "frontend/web/src/lib/video-compress.ts"
+    },
+    {
+      "id": "partner-app",
+      "label": "Partner Rolplay app",
+      "type": "external-app",
+      "layer": "client",
+      "description": "Otra app Rolplay. Su backend pide un URL de login one-time (X-SSO-Key) y redirige el navegador. La clave nunca llega al browser.",
+      "tech": ["backend-to-backend SSO"],
+      "path": "docs/sso-integration.md"
+    },
+    {
+      "id": "mcp-client",
+      "label": "MCP client / AI agent",
+      "type": "external-app",
+      "layer": "client",
+      "description": "Agente que llama herramientas MCP con Authorization: Bearer <agent key>. Alcance = tier de la clave (user/admin/superadmin/stats).",
+      "tech": ["MCP", "Bearer agent key"],
+      "path": "mcp-server/README.md"
+    },
+    {
+      "id": "next-web",
+      "label": "perfeccionate-web",
+      "type": "service",
+      "layer": "frontend",
+      "description": "Next.js App Router. Marketing en /, dashboard, practice, admin org, platform. Proxy server-side de /api/* hacia la API para cookie first-party. Autoscale Render 1–5.",
+      "tech": ["Next.js", "Docker", "Render web"],
+      "path": "frontend/web"
+    },
+    {
+      "id": "fastapi-api",
+      "label": "perfeccionate-api",
+      "type": "service",
+      "layer": "api",
+      "description": "FastAPI JSON. Auth (cookie / X-API-Key / X-SSO-Key), videos, scenarios, grading, chat, org/platform admin, SSO. auth_guard es el único choke point. Monta /api/mcp. Autoscale 1–5.",
+      "tech": ["FastAPI", "uvicorn", "Docker", "Render web"],
+      "path": "backend/src/api"
+    },
+    {
+      "id": "mcp-endpoint",
+      "label": "MCP /api/mcp",
+      "type": "service",
+      "layer": "api",
+      "description": "MCP montado dentro de la API (mcp_app.py). Bearer → X-API-Key vía ASGI in-process. Mismas tools que mcp-server stdio. Sin servicio Render aparte.",
+      "tech": ["MCP", "httpx.ASGITransport"],
+      "path": "backend/src/api/mcp_app.py"
+    },
+    {
+      "id": "celery-worker",
+      "label": "perfeccionate-worker",
+      "type": "service",
+      "layer": "worker",
+      "description": "Celery en cola video-processing. Descarga, frames, MediaPipe, ElevenLabs+librosa, localiza feedback en/es-MX, guarda JSONB, luego grading LLM. Concurrency=1. Escala 1–15 vía queue-scaler.",
+      "tech": ["Celery", "ffmpeg", "Docker", "Render worker"],
+      "path": "backend/src/worker"
+    },
+    {
+      "id": "postgres",
+      "label": "Postgres + RLS",
+      "type": "datastore",
+      "layer": "data",
+      "description": "Fuente de verdad. FORCE ROW LEVEL SECURITY; tenant_context declara quién pregunta. No filtrar por tenant_id en app. Managed Render perfeccionate-db.",
+      "tech": ["PostgreSQL 16", "RLS", "psycopg2"],
+      "path": "backend/db/migrations"
+    },
+    {
+      "id": "redis",
+      "label": "Redis / Valkey",
+      "type": "datastore",
+      "layer": "data",
+      "description": "Broker Celery (LLEN video-processing), circuit breaker LLM por proveedor, lectura del queue-scaler. Managed Key Value Render.",
+      "tech": ["Redis/Valkey", "Celery broker"],
+      "path": "backend/src/shared/queue.py"
+    },
+    {
+      "id": "s3",
+      "label": "S3 / object storage",
+      "type": "datastore",
+      "layer": "data",
+      "description": "Grabaciones y logos de branding. Stream autenticado vía API (/api/videos/{id}/stream); nunca URL pública directa. Local: MinIO.",
+      "tech": ["AWS S3", "MinIO (dev)"],
+      "path": "backend/src/shared/s3.py"
+    },
+    {
+      "id": "mediapipe",
+      "label": "MediaPipe",
+      "type": "library",
+      "layer": "analysis",
+      "description": "Inferencia local en el worker: sonrisa (blendshapes) y gestos/manos por frame. Sin costo de API vendor.",
+      "tech": ["MediaPipe"],
+      "path": "backend/src/worker/utils/mediapipe_utils.py"
+    },
+    {
+      "id": "elevenlabs",
+      "label": "ElevenLabs",
+      "type": "external-api",
+      "layer": "external",
+      "description": "STT con timestamps a nivel de palabra. Solo si feature.speech está on para el tenant.",
+      "tech": ["ElevenLabs API"],
+      "path": "backend/src/worker/utils/elevenlabs_utils.py"
+    },
+    {
+      "id": "librosa",
+      "label": "librosa (prosody)",
+      "type": "library",
+      "layer": "analysis",
+      "description": "Pitch, volume, pauses, rhythm sobre PCM + transcript. Local en el worker.",
+      "tech": ["librosa"],
+      "path": "backend/src/worker/utils/prosody.py"
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "type": "external-api",
+      "layer": "external",
+      "description": "LLM primario vía shared/llm.py: grading y chat de coaching. Schema forzado (response_format).",
+      "tech": ["OpenAI API"],
+      "path": "backend/src/shared/llm.py"
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "type": "external-api",
+      "layer": "external",
+      "description": "Fallback LLM cuando OpenAI falla o su circuit breaker está abierto (estado en Redis).",
+      "tech": ["Anthropic API"],
+      "path": "backend/src/shared/llm.py"
+    },
+    {
+      "id": "queue-scaler",
+      "label": "perfeccionate-queue-scaler",
+      "type": "cron",
+      "layer": "ops",
+      "description": "Cron cada minuto. LLEN Redis → Render scale API. Sube inmediato; baja máx. 1 instancia/tick. Reemplaza autoscaler CPU del worker (1–15).",
+      "tech": ["Render cron", "Python"],
+      "path": "ops/queue-scaler/scale_worker.py"
+    },
+    {
+      "id": "retention",
+      "label": "perfeccionate-retention",
+      "type": "cron",
+      "layer": "ops",
+      "description": "Cron diario 08:00 UTC. Borra S3 + fila videos según retention_days del org (default 0 = forever). Misma imagen worker + RLS. Dry-run por defecto.",
+      "tech": ["Render cron", "Docker worker image"],
+      "path": "backend/src/jobs/retention.py"
+    },
+    {
+      "id": "render-api",
+      "label": "Render API",
+      "type": "external-api",
+      "layer": "ops",
+      "description": "API de Render usada por el queue-scaler para leer/setear numInstances de perfeccionate-worker (RENDER_API_KEY).",
+      "tech": ["api.render.com"],
+      "path": "ops/queue-scaler/scale_worker.py"
+    },
+    {
+      "id": "sentry",
+      "label": "Sentry",
+      "type": "observability",
+      "layer": "ops",
+      "description": "Errores out-of-band (api + web projects). Tags: tenant_id, correlation_id, principal_kind. Sin video/transcript/chat. DSN vacío = off.",
+      "tech": ["Sentry", "rolplay-jl"],
+      "path": "docs/DEPLOYMENT.md"
+    },
+    {
+      "id": "platform-ui",
+      "label": "Platform panel",
+      "type": "ui-surface",
+      "layer": "frontend",
+      "description": "UI /platform para platform_admin: crear orgs + primer admin, thresholds, SSO keys, agent keys superadmin/stats, monitoring, activity.",
+      "tech": ["Next.js routes"],
+      "path": "frontend/web/src/app/platform"
+    }
+  ],
+  "edges": [
+    {"id": "e-browser-web", "from": "browser", "to": "next-web", "label": "HTTPS (solo origen web)", "kind": "http"},
+    {"id": "e-sense-browser", "from": "sense-sdk", "to": "browser", "label": "análisis en vivo", "kind": "local"},
+    {"id": "e-ffmpeg-browser", "from": "ffmpeg-wasm", "to": "browser", "label": "compress pre-upload", "kind": "local"},
+    {"id": "e-web-api", "from": "next-web", "to": "fastapi-api", "label": "proxy /api/* (API_ORIGIN)", "kind": "http-internal"},
+    {"id": "e-api-pg", "from": "fastapi-api", "to": "postgres", "label": "tenant_context + RLS", "kind": "db"},
+    {"id": "e-api-redis", "from": "fastapi-api", "to": "redis", "label": "enqueue + breaker", "kind": "queue"},
+    {"id": "e-api-s3", "from": "fastapi-api", "to": "s3", "label": "upload / stream proxy", "kind": "storage"},
+    {"id": "e-api-mcp", "from": "fastapi-api", "to": "mcp-endpoint", "label": "monta /api/mcp", "kind": "mount"},
+    {"id": "e-mcp-api", "from": "mcp-endpoint", "to": "fastapi-api", "label": "ASGI → X-API-Key", "kind": "http-internal"},
+    {"id": "e-mcp-client", "from": "mcp-client", "to": "mcp-endpoint", "label": "Bearer agent key", "kind": "http"},
+    {"id": "e-redis-worker", "from": "redis", "to": "celery-worker", "label": "video-processing queue", "kind": "queue"},
+    {"id": "e-worker-pg", "from": "celery-worker", "to": "postgres", "label": "result JSONB + grade", "kind": "db"},
+    {"id": "e-worker-s3", "from": "celery-worker", "to": "s3", "label": "download / re-upload mp4", "kind": "storage"},
+    {"id": "e-worker-mp", "from": "celery-worker", "to": "mediapipe", "label": "smile + gesture", "kind": "compute"},
+    {"id": "e-worker-el", "from": "celery-worker", "to": "elevenlabs", "label": "STT (si speech on)", "kind": "http"},
+    {"id": "e-worker-librosa", "from": "celery-worker", "to": "librosa", "label": "prosody", "kind": "compute"},
+    {"id": "e-worker-openai", "from": "celery-worker", "to": "openai", "label": "grading (primary)", "kind": "http"},
+    {"id": "e-worker-anthropic", "from": "celery-worker", "to": "anthropic", "label": "grading fallback", "kind": "http"},
+    {"id": "e-api-openai", "from": "fastapi-api", "to": "openai", "label": "chat coaching", "kind": "http"},
+    {"id": "e-api-anthropic", "from": "fastapi-api", "to": "anthropic", "label": "chat fallback", "kind": "http"},
+    {"id": "e-scaler-redis", "from": "queue-scaler", "to": "redis", "label": "LLEN depth", "kind": "queue"},
+    {"id": "e-scaler-render", "from": "queue-scaler", "to": "render-api", "label": "scale worker", "kind": "http"},
+    {"id": "e-render-worker", "from": "render-api", "to": "celery-worker", "label": "numInstances 1–15", "kind": "control"},
+    {"id": "e-retention-pg", "from": "retention", "to": "postgres", "label": "RLS delete rows", "kind": "db"},
+    {"id": "e-retention-s3", "from": "retention", "to": "s3", "label": "delete objects", "kind": "storage"},
+    {"id": "e-partner-sso", "from": "partner-app", "to": "fastapi-api", "label": "POST /api/sso/start", "kind": "http"},
+    {"id": "e-partner-redirect", "from": "partner-app", "to": "browser", "label": "302 → login URL", "kind": "http"},
+    {"id": "e-sso-exchange", "from": "browser", "to": "next-web", "label": "/api/auth/sso/exchange", "kind": "http"},
+    {"id": "e-platform-ui", "from": "platform-ui", "to": "next-web", "label": "rutas /platform", "kind": "ui"},
+    {"id": "e-web-sentry", "from": "next-web", "to": "sentry", "label": "browser + server errors", "kind": "telemetry"},
+    {"id": "e-api-sentry", "from": "fastapi-api", "to": "sentry", "label": "API errors", "kind": "telemetry"},
+    {"id": "e-worker-sentry", "from": "celery-worker", "to": "sentry", "label": "job errors", "kind": "telemetry"},
+    {"id": "e-scaler-sentry", "from": "queue-scaler", "to": "sentry", "label": "cron monitor", "kind": "telemetry"},
+    {"id": "e-retention-sentry", "from": "retention", "to": "sentry", "label": "cron monitor", "kind": "telemetry"}
+  ],
+  "flows": [
+    {
+      "id": "flow-practice",
+      "name": "Práctica: grabar → analizar → calificar",
+      "description": "Record en browser (Sense + compress opcional) → POST /api/videos → S3 + fila queued → Celery process_video_task → MediaPipe/ElevenLabs/librosa → JSONB → grading LLM → UI resultados.",
+      "steps": [
+        {"node": "browser", "action": "Usuario abre /practice/record, graba con cámara", "notes": "Sense SDK muestra métricas en vivo; no se muestran scores finales durante Record"},
+        {"node": "sense-sdk", "action": "Análisis en vivo local (sonrisa/gesto/etc.)", "notes": "Wasm MediaPipe same-origin"},
+        {"node": "ffmpeg-wasm", "action": "Re-encode H.264/AAC MP4 on-device", "notes": "Fallback a original si falla"},
+        {"node": "next-web", "action": "POST /api/videos (proxy)", "notes": "Cookie first-party"},
+        {"node": "fastapi-api", "action": "validate_and_upload + create_video + add_video_job", "notes": "routes/videos.py; status queued"},
+        {"node": "s3", "action": "Almacena objeto de grabación", "notes": "URL interna, no pública"},
+        {"node": "postgres", "action": "Inserta fila videos bajo RLS", "notes": "tenant_context del principal"},
+        {"node": "redis", "action": "Encola job en video-processing", "notes": "correlation_id viaja al worker"},
+        {"node": "celery-worker", "action": "process_video_task: download, frames, análisis", "notes": "acks_late, max_retries=3"},
+        {"node": "mediapipe", "action": "Smile + gesture por frame", "notes": "Skip si feature flags off"},
+        {"node": "elevenlabs", "action": "Transcribe audio (word timestamps)", "notes": "Solo feature.speech"},
+        {"node": "librosa", "action": "Prosody (pitch/volume/pauses/rhythm)", "notes": "Sobre PCM"},
+        {"node": "postgres", "action": "merge/update result JSONB + feedback en/es-MX", "notes": "Mediciones duraderas antes del grade"},
+        {"node": "openai", "action": "grade_video (primary) o Anthropic fallback", "notes": "Fuera del failure path de mediciones; bilingüe en/es-MX"},
+        {"node": "next-web", "action": "UI /videos/[id] poll status + grade", "notes": "GET grade no recomputa"},
+        {"node": "browser", "action": "Usuario ve scores, band y coach", "notes": "Chat coaching vía LLM"}
+      ]
+    },
+    {
+      "id": "flow-auth",
+      "name": "Auth / sesión (cookie first-party)",
+      "description": "Login vía Next; cookie httponly SameSite=Lax en el origen de la web. Proxy server-side reenvía /api/*; auth_guard en FastAPI valida la sesión en cada request.",
+      "steps": [
+        {"node": "browser", "action": "POST credenciales a /api/auth/login (vía web)", "notes": "Middleware proxy.ts solo mira presencia de cookie"},
+        {"node": "next-web", "action": "Proxy /api/* → API_ORIGIN", "notes": "Cookie permanece first-party"},
+        {"node": "fastapi-api", "action": "auth_guard establece Principal(kind=user)", "notes": "Session cookie firmada con SESSION_SECRET"},
+        {"node": "postgres", "action": "Lookup user + tenant status", "notes": "Org suspendida corta en cada request"},
+        {"node": "browser", "action": "Redirect AFTER_LOGIN → /dashboard", "notes": "session.ts"}
+      ]
+    },
+    {
+      "id": "flow-sso",
+      "name": "SSO handoff desde otra app Rolplay",
+      "description": "Backend partner POST /api/sso/start con X-SSO-Key → URL one-time 60s → redirect browser → /api/auth/sso/exchange → cookie de sesión en app host.",
+      "steps": [
+        {"node": "partner-app", "action": "POST /api/sso/start (X-SSO-Key)", "notes": "Server-to-server al API host; rate limit 60/min"},
+        {"node": "fastapi-api", "action": "sso_context + tenant_context; mint code", "notes": "Crea member passwordless si no existe"},
+        {"node": "postgres", "action": "Upsert user / store one-time code", "notes": "Email único platform-wide"},
+        {"node": "partner-app", "action": "302/303 browser a url (app host)", "notes": "No fetch, no iframe, no email"},
+        {"node": "browser", "action": "GET /api/auth/sso/exchange?code=…", "notes": "Vía perfeccionate-web"},
+        {"node": "next-web", "action": "Proxy exchange", "notes": "APP_BASE_URL = app host"},
+        {"node": "fastapi-api", "action": "Consume code → Set-Cookie sesión", "notes": "Single-use, 60s TTL"},
+        {"node": "browser", "action": "Land en redirect_path (/dashboard o /practice/…)", "notes": "Path only, no open redirect"}
+      ]
+    },
+    {
+      "id": "flow-platform-onboard",
+      "name": "Platform admin onboardea una org",
+      "description": "platform_admin en /platform crea organización + primer admin; puede emitir SSO keys y tunear thresholds. No ve recordings/transcripts/chats de orgs.",
+      "steps": [
+        {"node": "browser", "action": "Sesión platform_admin abre /platform", "notes": "Principal kind distinto a org admin"},
+        {"node": "platform-ui", "action": "Formulario nueva org (nombre + admin email)", "notes": "frontend/web/src/app/platform"},
+        {"node": "next-web", "action": "Proxy POST /api/platform/organisations", "notes": ""},
+        {"node": "fastapi-api", "action": "create_tenant + add_user(role=admin)", "notes": "routes/platform.py; password one-time"},
+        {"node": "postgres", "action": "Insert tenants + users", "notes": "RLS; platform no toca videos"},
+        {"node": "fastapi-api", "action": "Opcional: issue SSO key / settings thresholds", "notes": "PUT …/settings bajo tenant_context"},
+        {"node": "browser", "action": "Entrega password al admin de la org", "notes": "Onboarding completo vía producto"}
+      ]
+    },
+    {
+      "id": "flow-mcp",
+      "name": "Agente MCP llama tools de la API",
+      "description": "Cliente MCP → /api/mcp con Bearer agent key → mcp_app traduce a X-API-Key → auth_guard + _API_KEY_ROUTES. Tools: recordings, scenarios, teams, branding, chat, platform…",
+      "steps": [
+        {"node": "mcp-client", "action": "Invoca tool MCP (p.ej. list recordings)", "notes": "URL …/api/mcp + Bearer rp_live_…"},
+        {"node": "mcp-endpoint", "action": "Lee Bearer; tool → request ASGI interno", "notes": "Header X-Mcp-Tool para activity_log"},
+        {"node": "fastapi-api", "action": "auth_guard (X-API-Key) + guards de tier", "notes": "user/admin/superadmin/stats"},
+        {"node": "postgres", "action": "Query bajo RLS del principal de la key", "notes": "sees_whole_organisation según tier"},
+        {"node": "s3", "action": "Si tool sube archivo (recording/logo/csv)", "notes": "submit_recording_from_file etc."},
+        {"node": "mcp-client", "action": "Recibe respuesta de la tool", "notes": "Sin mint de keys ni SSO desde MCP"}
+      ]
+    },
+    {
+      "id": "flow-autoscaling",
+      "name": "Autoscaling por profundidad de cola",
+      "description": "Cron cada minuto: LLEN Redis video-processing → desired instances → Render scale. Sube ya; baja de a 1. Worker sin scaling: de Render.",
+      "steps": [
+        {"node": "queue-scaler", "action": "Tick cron (* * * * *)", "notes": "ops/queue-scaler/scale_worker.py"},
+        {"node": "redis", "action": "LLEN video-processing", "notes": "Mismo read que monitoring"},
+        {"node": "render-api", "action": "GET service + POST /scale numInstances", "notes": "RENDER_API_KEY personal"},
+        {"node": "celery-worker", "action": "Instancias 1–15 (TARGET_QUEUE_PER_INSTANCE=3)", "notes": "Scale-down máx. −1/tick"},
+        {"node": "sentry", "action": "Cron check-in monitor", "notes": "Missed tick = alerta"}
+      ]
+    },
+    {
+      "id": "flow-request-path",
+      "name": "Request path browser → Next → FastAPI → DB/S3",
+      "description": "Camino estándar de cualquier llamada autenticada de UI: browser → perfeccionate-web → proxy → perfeccionate-api → Postgres RLS y/o S3 stream.",
+      "steps": [
+        {"node": "browser", "action": "fetch('/api/…') same-origin", "notes": "CSP connect-src 'self'"},
+        {"node": "next-web", "action": "Server proxy a API_ORIGIN", "notes": "http://perfeccionate-api:8000 en Render"},
+        {"node": "fastapi-api", "action": "auth_guard + route handler (offload sync)", "notes": "offload evita bloquear event loop"},
+        {"node": "postgres", "action": "Query/escritura con tenant_context", "notes": "FORCE RLS"},
+        {"node": "s3", "action": "Si stream/upload de media", "notes": "GET /api/videos/{id}/stream"},
+        {"node": "sentry", "action": "Errores con correlation_id / tenant_id", "notes": "Out of band"}
+      ]
+    },
+    {
+      "id": "flow-retention",
+      "name": "Retención nocturna de grabaciones",
+      "description": "Cron 08:00 UTC borra objetos S3 + filas según retention_days por org. Default 0 = keep forever. Dry-run true de fábrica.",
+      "steps": [
+        {"node": "retention", "action": "python -m src.jobs.retention", "notes": "Imagen worker; RETENTION_DRY_RUN"},
+        {"node": "postgres", "action": "Lista videos vencidos bajo RLS por tenant", "notes": "retention_days setting"},
+        {"node": "s3", "action": "delete_object; si falla, conserva fila", "notes": "Consistencia object/row"},
+        {"node": "postgres", "action": "Delete videos row si S3 OK", "notes": "Sin versionado de bucket"},
+        {"node": "sentry", "action": "Check-in + errores por org", "notes": "Monitor perfeccionate-retention"}
+      ]
+    },
+    {
+      "id": "flow-rehearse",
+      "name": "Rehearse (solo dispositivo)",
+      "description": "Modo ensayo: Sense en browser, nada de audio/video sale del dispositivo. Solo un ping de uso POST /api/practice/rehearsals (tenant_id + timestamp).",
+      "steps": [
+        {"node": "browser", "action": "Abre /practice/rehearse", "notes": "Sin MediaRecorder de upload"},
+        {"node": "sense-sdk", "action": "Métricas en vivo en pantalla", "notes": "Nada se guarda del contenido"},
+        {"node": "next-web", "action": "Proxy POST /api/practice/rehearsals", "notes": "KPI de uso"},
+        {"node": "fastapi-api", "action": "record_rehearsal_event", "notes": "Sin transcript ni media"},
+        {"node": "postgres", "action": "Cuenta evento de rehearsal", "notes": "platform stats"}
+      ]
+    }
+  ]
+}
