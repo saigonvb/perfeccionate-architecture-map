@@ -1,9 +1,9 @@
 # Perfeccionate — Architecture & Flows
 
-Diagrama interactivo (HTML standalone) de la arquitectura de `RolPlayAI/perfeccionate`.
+Diagrama interactivo (HTML standalone) de arquitectura.
 
-**Clave de acceso (básica):** `rp2026`
+Vista: [GitHub Pages](https://saigonvb.github.io/perfeccionate-architecture-map/)
 
-No incluye secretos reales; describe arquitectura interna (úsese con cuidado).
+Protegido con un candado básico en la página (la clave **no** se publica aquí).
 
-Vista pública vía GitHub Pages en `/` (index.html).
+No incluye secretos de producción; describe arquitectura interna.
